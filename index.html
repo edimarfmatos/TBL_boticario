@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <title>Leitor de Remessa</title>
   <style>
-    body { font-family: Arial; text-align: center; margin: 0; padding: 0; }
-    video { width: 100%; max-width: 400px; }
+    body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
+    video { width: 100%; max-width: 400px; margin-top: 20px; }
     #status { margin-top: 20px; font-size: 20px; color: green; }
   </style>
 </head>
@@ -14,29 +14,43 @@
   <video id="video" autoplay></video>
   <div id="status">Aponte a câmera para o código da remessa</div>
 
+  <!-- Biblioteca ZXing para leitura de códigos -->
   <script src="https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js"></script>
   <script>
     const codeReader = new ZXing.BrowserBarcodeReader();
     const video = document.getElementById('video');
     const status = document.getElementById('status');
 
-    codeReader
-      .decodeFromVideoDevice(null, video, (result, err) => {
-        if (result) {
-          let qrTexto = result.text.toUpperCase();
-          let match = qrTexto.match(/\b(RM|REMESSA)\d{1,8}\b/);
-          if (match) {
-            let remessa = match[0];
-            status.innerHTML = "Remessa detectada: " + remessa;
-            
-            // abre o Web App com a remessa
-            let linkWebApp = "https://script.google.com/macros/s/AKfycbw_xC-eAyzufeqDEWWQs2yeF2457Ip8btfuuU-iJUo6KBXZAB_fMjPY6WEIkpNQUikMHQ/exec?remessa=" + remessa;
-            window.location.href = linkWebApp;
-          } else {
-            status.innerHTML = "Não foi possível identificar a remessa no código.";
-          }
+    // Função para iniciar a câmera
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        video.srcObject = stream;
+      } catch (err) {
+        status.innerHTML = "Não foi possível acessar a câmera: " + err;
+      }
+    }
+
+    startCamera();
+
+    codeReader.decodeFromVideoDevice(null, video, (result, err) => {
+      if (result) {
+        let qrTexto = result.text.toUpperCase();
+        let match = qrTexto.match(/\b(RM|REMESSA)\d{1,8}\b/);
+        if (match) {
+          let remessa = match[0];
+          status.innerHTML = "Remessa detectada: " + remessa;
+
+          // URL do Web App do seu Apps Script
+          let linkWebApp = "https://script.google.com/macros/s/AKfycbw_xC-eAyzufeqDEWWQs2yeF2457Ip8btfuuU-iJUo6KBXZAB_fMjPY6WEIkpNQUikMHQ/exec?remessa=" + remessa;
+
+          // Abrir o Web App automaticamente
+          window.location.href = linkWebApp;
+        } else {
+          status.innerHTML = "Não foi possível identificar a remessa no código.";
         }
-      });
+      }
+    });
   </script>
 </body>
 </html>
