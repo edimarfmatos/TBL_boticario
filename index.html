@@ -6,24 +6,38 @@
   <style>
     body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
     video { width: 100%; max-width: 400px; margin-top: 20px; }
-    canvas { display: none; }
     #status { margin-top: 20px; font-size: 20px; color: green; }
+    #overlay {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 200px; height: 50px;
+      margin-left: -100px; margin-top: -25px;
+      border: 2px solid red;
+      pointer-events: none;
+    }
+    #container { position: relative; display: inline-block; }
+    #btnNext { margin-top: 20px; font-size: 18px; padding: 10px 20px; }
   </style>
 </head>
 <body>
   <h1>Leitor de Remessa OCR</h1>
-  <video id="video" autoplay></video>
-  <canvas id="canvas"></canvas>
-  <div id="status">Aponte a câmera para o código da remessa</div>
+  <div id="container">
+    <video id="video" autoplay></video>
+    <div id="overlay"></div>
+  </div>
+  <canvas id="canvas" style="display:none;"></canvas>
+  <div id="status">Aponte o código da remessa dentro do retângulo vermelho</div>
+  <button id="btnNext" style="display:none;">Próximo Volume</button>
 
-  <!-- Tesseract.js -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
   <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const status = document.getElementById('status');
+    const btnNext = document.getElementById('btnNext');
 
-    // Inicia a câmera
+    let scanning = true;
+
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
@@ -35,42 +49,55 @@
 
     startCamera();
 
-    // Função para capturar frame e fazer OCR
-    function scanFrame() {
+    async function scanFrame() {
+      if (!scanning || video.readyState !== video.HAVE_ENOUGH_DATA) {
+        if(scanning) setTimeout(scanFrame, 500);
+        return;
+      }
+
       const ctx = canvas.getContext('2d');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const w = 200;
+      const h = 50;
+      canvas.width = w;
+      canvas.height = h;
+
+      const x = (video.videoWidth - w) / 2;
+      const y = (video.videoHeight - h) / 2;
+
+      ctx.drawImage(video, x, y, w, h, 0, 0, w, h);
       const imageData = canvas.toDataURL('image/png');
 
-      Tesseract.recognize(
-        imageData,
-        'eng',
-        { logger: m => console.log(m) }
-      ).then(({ data: { text } }) => {
+      try {
+        const { data: { text } } = await Tesseract.recognize(imageData, 'eng');
         const qrTexto = text.toUpperCase();
         const match = qrTexto.match(/\b(RM|REMESSA)\d{1,8}\b/);
+
         if (match) {
           const remessa = match[0];
           status.innerHTML = "Remessa detectada: " + remessa;
+          scanning = false; // pausa o OCR
+          btnNext.style.display = "inline-block";
 
-          // URL do Web App
+          // abre o Web App
           const linkWebApp = "https://script.google.com/macros/s/AKfycbw_xC-eAyzufeqDEWWQs2yeF2457Ip8btfuuU-iJUo6KBXZAB_fMjPY6WEIkpNQUikMHQ/exec?remessa=" + remessa;
-
-          // Abre o Web App
-          window.location.href = linkWebApp;
+          window.open(linkWebApp, "_blank"); // abre em nova aba para poder voltar à câmera
         } else {
-          // continua tentando
-          setTimeout(scanFrame, 2000); // tenta de novo a cada 2 segundos
+          setTimeout(scanFrame, 1000);
         }
-      }).catch(err => {
+      } catch (err) {
         console.error(err);
-        setTimeout(scanFrame, 2000);
-      });
+        setTimeout(scanFrame, 1000);
+      }
     }
 
-    // Começa a captura após 1 segundo para garantir câmera carregada
     setTimeout(scanFrame, 1000);
+
+    btnNext.addEventListener('click', () => {
+      scanning = true;
+      status.innerHTML = "Aponte o código da remessa dentro do retângulo vermelho";
+      btnNext.style.display = "none";
+      scanFrame(); // reinicia OCR
+    });
   </script>
 </body>
 </html>
