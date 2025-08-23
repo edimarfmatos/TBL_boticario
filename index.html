@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Leitor de Remessa OCR Otimizado</title>
+  <title>Leitor de Remessa OCR</title>
   <style>
     body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
     video { width: 100%; max-width: 400px; margin-top: 20px; }
@@ -16,30 +16,8 @@
       pointer-events: none;
     }
     #container { position: relative; display: inline-block; }
-
-    /* Modal */
-    #modal {
-      display: none;
-      position: fixed; 
-      z-index: 10; 
-      left: 0; top: 0; width: 100%; height: 100%;
-      background-color: rgba(0,0,0,0.6);
-    }
-    #modalContent {
-      background-color: #fff;
-      margin: 15% auto;
-      padding: 20px;
-      border-radius: 10px;
-      width: 90%;
-      max-width: 400px;
-      text-align: center;
-    }
-    #modalContent h1 { font-size: 40px; color: red; margin: 0; }
-    #modalContent p { font-size: 18px; margin: 10px 0; }
-    #btnCloseModal {
-      font-size: 18px;
-      padding: 10px 20px;
-      margin-top: 10px;
+    #btnNext, #btnBack {
+      margin-top: 20px; font-size: 18px; padding: 10px 20px; display: none;
     }
   </style>
 </head>
@@ -51,25 +29,16 @@
   </div>
   <canvas id="canvas" style="display:none;"></canvas>
   <div id="status">Aponte o código da remessa dentro do retângulo vermelho</div>
-
-  <!-- Modal do Web App -->
-  <div id="modal">
-    <div id="modalContent">
-      <h1 id="palete"></h1>
-      <p id="mensagem"></p>
-      <button id="btnCloseModal">Fechar e continuar</button>
-    </div>
-  </div>
+  <button id="btnNext">Próximo Volume</button>
+  <button id="btnBack">Voltar para câmera</button>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
   <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const status = document.getElementById('status');
-    const modal = document.getElementById('modal');
-    const paleteEl = document.getElementById('palete');
-    const mensagemEl = document.getElementById('mensagem');
-    const btnCloseModal = document.getElementById('btnCloseModal');
+    const btnNext = document.getElementById('btnNext');
+    const btnBack = document.getElementById('btnBack');
 
     let scanning = true;
     let lastRemessa = "";
@@ -84,20 +53,6 @@
     }
 
     startCamera();
-
-    // Função para pré-processar o frame (contraste + binarização)
-    function preprocessFrame(ctx, w, h) {
-      const imageData = ctx.getImageData(0, 0, w, h);
-      const data = imageData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        // Convertendo para cinza
-        const gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-        // Binarização simples
-        const val = gray > 150 ? 255 : 0;
-        data[i] = data[i+1] = data[i+2] = val;
-      }
-      ctx.putImageData(imageData, 0, 0);
-    }
 
     async function scanFrame() {
       if (!scanning || video.readyState !== video.HAVE_ENOUGH_DATA) {
@@ -115,7 +70,6 @@
       const y = (video.videoHeight - h) / 2;
 
       ctx.drawImage(video, x, y, w, h, 0, 0, w, h);
-      preprocessFrame(ctx, w, h); // aumenta precisão OCR
       const imageData = canvas.toDataURL('image/png');
 
       try {
@@ -125,24 +79,15 @@
 
         if (match && match[0] !== lastRemessa) {
           lastRemessa = match[0];
+          status.innerHTML = "Remessa detectada: " + lastRemessa;
           scanning = false;
+          btnNext.style.display = "inline-block";
+          btnBack.style.display = "inline-block";
 
-          // Chama Web App
-          const urlWebApp = "https://script.google.com/macros/s/AKfycbz5S_GxAgAK4kzhsgSI5C6CO8ayDxhUJ3um3dMzlhWcEWVgnxDdVe_6FWGDK6R6w-uhgw/exec?remessa=" + lastRemessa;
-          const response = await fetch(urlWebApp);
-          const htmlText = await response.text();
-
-          // Extrair palete e mensagem
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(htmlText, 'text/html');
-          const h1 = doc.querySelector('h1');
-          const p = doc.querySelector('p');
-          paleteEl.textContent = h1 ? h1.textContent : "Palete?";
-          mensagemEl.textContent = p ? p.textContent : "";
-
-          modal.style.display = "block";
+          const linkWebApp = "https://script.google.com/macros/s/AKfycbxh6BqkJkErI86GrvqG9sm2MvRPwqW3UCldMHdYvir6j3kfe77nxRFGRi-WUB2N5Fv3jQ/exec?remessa=" + lastRemessa;
+          window.open(linkWebApp, "_blank"); // abre Web App em nova aba
         } else {
-          setTimeout(scanFrame, 500); // tenta novamente
+          setTimeout(scanFrame, 1000);
         }
       } catch (err) {
         console.error(err);
@@ -152,11 +97,21 @@
 
     setTimeout(scanFrame, 1000);
 
-    btnCloseModal.addEventListener('click', () => {
+    // Botão Próximo Volume
+    btnNext.addEventListener('click', () => {
       scanning = true;
       status.innerHTML = "Aponte o código da remessa dentro do retângulo vermelho";
-      modal.style.display = "none";
-      lastRemessa = "";
+      btnNext.style.display = "none";
+      btnBack.style.display = "none";
+      scanFrame();
+    });
+
+    // Botão Voltar para câmera
+    btnBack.addEventListener('click', () => {
+      scanning = true;
+      status.innerHTML = "Aponte o código da remessa dentro do retângulo vermelho";
+      btnNext.style.display = "none";
+      btnBack.style.display = "none";
       scanFrame();
     });
   </script>
