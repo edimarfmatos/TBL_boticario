@@ -2,26 +2,28 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Leitor de Remessa</title>
+  <title>Leitor de Remessa OCR</title>
   <style>
     body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
     video { width: 100%; max-width: 400px; margin-top: 20px; }
+    canvas { display: none; }
     #status { margin-top: 20px; font-size: 20px; color: green; }
   </style>
 </head>
 <body>
-  <h1>Leitor de Remessa</h1>
+  <h1>Leitor de Remessa OCR</h1>
   <video id="video" autoplay></video>
+  <canvas id="canvas"></canvas>
   <div id="status">Aponte a câmera para o código da remessa</div>
 
-  <!-- Biblioteca ZXing para leitura de códigos -->
-  <script src="https://unpkg.com/@zxing/library@0.18.6/umd/index.min.js"></script>
+  <!-- Tesseract.js -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
   <script>
-    const codeReader = new ZXing.BrowserBarcodeReader();
     const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
     const status = document.getElementById('status');
 
-    // Função para iniciar a câmera
+    // Inicia a câmera
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
@@ -33,24 +35,42 @@
 
     startCamera();
 
-    codeReader.decodeFromVideoDevice(null, video, (result, err) => {
-      if (result) {
-        let qrTexto = result.text.toUpperCase();
-        let match = qrTexto.match(/\b(RM|REMESSA)\d{1,8}\b/);
+    // Função para capturar frame e fazer OCR
+    function scanFrame() {
+      const ctx = canvas.getContext('2d');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = canvas.toDataURL('image/png');
+
+      Tesseract.recognize(
+        imageData,
+        'eng',
+        { logger: m => console.log(m) }
+      ).then(({ data: { text } }) => {
+        const qrTexto = text.toUpperCase();
+        const match = qrTexto.match(/\b(RM|REMESSA)\d{1,8}\b/);
         if (match) {
-          let remessa = match[0];
+          const remessa = match[0];
           status.innerHTML = "Remessa detectada: " + remessa;
 
-          // URL do Web App do seu Apps Script
-          let linkWebApp = "https://script.google.com/macros/s/AKfycbw_xC-eAyzufeqDEWWQs2yeF2457Ip8btfuuU-iJUo6KBXZAB_fMjPY6WEIkpNQUikMHQ/exec?remessa=" + remessa;
+          // URL do Web App
+          const linkWebApp = "https://script.google.com/macros/s/AKfycbw_xC-eAyzufeqDEWWQs2yeF2457Ip8btfuuU-iJUo6KBXZAB_fMjPY6WEIkpNQUikMHQ/exec?remessa=" + remessa;
 
-          // Abrir o Web App automaticamente
+          // Abre o Web App
           window.location.href = linkWebApp;
         } else {
-          status.innerHTML = "Não foi possível identificar a remessa no código.";
+          // continua tentando
+          setTimeout(scanFrame, 2000); // tenta de novo a cada 2 segundos
         }
-      }
-    });
+      }).catch(err => {
+        console.error(err);
+        setTimeout(scanFrame, 2000);
+      });
+    }
+
+    // Começa a captura após 1 segundo para garantir câmera carregada
+    setTimeout(scanFrame, 1000);
   </script>
 </body>
 </html>
