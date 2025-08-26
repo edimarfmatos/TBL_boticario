@@ -84,19 +84,23 @@
           status.innerHTML = "✅ Remessa detectada: " + lastRemessa + "<br>Consultando planilha...";
 
           // Chamar o WebApp e mostrar o retorno direto AQUI
-          const linkWebApp = "https://script.google.com/macros/s/AKfycbzCSnbZlachKGJFW7u5r3kClLIhBV4BAVQSG9Ke6BoTst2Eaayp7NFJqqXdQLQH2gp6rA/exec?remessa=" + lastRemessa;
+          const linkWebApp = "https://script.google.com/macros/s/AKfycbzhTr_llG4Wwb9A7ZaoGynQeD73jXRBY45d2qFMXr3Ito7WZr0FMYqKqzzeXz6nlPzAKw/exec?remessa=" + lastRemessa;
 
           fetch(linkWebApp)
-            .then(res => res.text())
-            .then(html => {
-              status.innerHTML = html; // mostra resposta direto aqui
-              btnNext.style.display = "inline-block";
-              btnBack.style.display = "inline-block";
-            })
-            .catch(err => {
-              status.innerHTML = "Erro ao consultar planilha: " + err;
-              btnBack.style.display = "inline-block";
-            });
+        .then(res => res.json())
+        .then(data => {
+          status.innerHTML =
+            "<h1 style='font-size:100px; color:red;'>Palete: PL" + data.palete + "</h1>" +
+            "<p>" + data.mensagem + "</p>" +
+            "<p style='font-size:20px; color:blue;'>Total de leituras dessa remessa: <b>" + data.contagem + "</b></p>";
+          btnNext.style.display = "inline-block";
+          btnBack.style.display = "inline-block";
+        })
+        .catch(err => {
+          status.innerHTML = "⚠️ Erro ao consultar planilha: " + err;
+          btnBack.style.display = "inline-block";
+        });
+
 
         } else {
           setTimeout(scanFrame, 300);
