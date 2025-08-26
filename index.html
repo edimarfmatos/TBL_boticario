@@ -84,7 +84,7 @@
           status.innerHTML = "✅ Remessa detectada: " + lastRemessa + "<br>Consultando planilha...";
 
           // Chamar o WebApp e mostrar o retorno direto AQUI
-          const linkWebApp = "https://script.google.com/macros/s/AKfycbzUt8Iu72N4rUZ0A0BKD7kJLFm5lRJZs6DVzsdcHy4DfrRDVNJ8uaT342aHo_26rpgwYQ/exec?remessa=" + lastRemessa;
+          const linkWebApp = "https://script.google.com/macros/s/AKfycbzCSnbZlachKGJFW7u5r3kClLIhBV4BAVQSG9Ke6BoTst2Eaayp7NFJqqXdQLQH2gp6rA/exec?remessa=" + lastRemessa;
 
           fetch(linkWebApp)
             .then(res => res.text())
