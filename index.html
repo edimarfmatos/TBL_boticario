@@ -75,7 +75,7 @@
       try {
         const { data: { text } } = await Tesseract.recognize(imageData, 'eng');
         const qrTexto = text.toUpperCase();
-        const match = qrTexto.match(/\b(RM|REMESSA)\d{1,8}\b/);
+        const match = qrTexto.match(/\b(NP:|N.P.:)\d{1,8}\b/);
 
         if (match && match[0] !== lastRemessa) {
           lastRemessa = match[0];
