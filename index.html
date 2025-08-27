@@ -34,102 +34,126 @@
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
   <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const status = document.getElementById('status');
-    const btnNext = document.getElementById('btnNext');
-    const btnBack = document.getElementById('btnBack');
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const status = document.getElementById('status');
+  const btnNext = document.getElementById('btnNext');
+  const btnBack = document.getElementById('btnBack');
 
-    let scanning = true;
-    let lastRemessa = "";
+  let scanning = true;
+  let lastRemessa = "";
+  let lastScanAt = 0;
+  const SCAN_COOLDOWN = 800; // ms
 
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        video.srcObject = stream;
-      } catch (err) {
-        status.innerHTML = "Não foi possível acessar a câmera: " + err;
-      }
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      video.srcObject = stream;
+    } catch (err) {
+      status.innerHTML = "Não foi possível acessar a câmera: " + err;
+    }
+  }
+  startCamera();
+
+  async function scanFrame() {
+    if (!scanning || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      if (scanning) setTimeout(scanFrame, 250);
+      return;
     }
 
-    startCamera();
+    const ctx = canvas.getContext('2d');
+    const w = 200, h = 50;
+    canvas.width = w; canvas.height = h;
 
-    async function scanFrame() {
-      if (!scanning || video.readyState !== video.HAVE_ENOUGH_DATA) {
-        if(scanning) setTimeout(scanFrame, 300); // menos delay
-        return;
-      }
+    const x = (video.videoWidth - w) / 2;
+    const y = (video.videoHeight - h) / 2;
+    ctx.drawImage(video, x, y, w, h, 0, 0, w, h);
 
-      const ctx = canvas.getContext('2d');
-      const w = 200, h = 50;
-      canvas.width = w; canvas.height = h;
+    const imageData = canvas.toDataURL('image/png');
 
-      const x = (video.videoWidth - w) / 2;
-      const y = (video.videoHeight - h) / 2;
-      ctx.drawImage(video, x, y, w, h, 0, 0, w, h);
+    try {
+      const { data: { text } } = await Tesseract.recognize(imageData, 'eng', {
+        tessedit_char_whitelist: 'NP:.0123456789'
+      });
 
-      const imageData = canvas.toDataURL('image/png');
+      const qrTexto = text.toUpperCase();
+      const match = qrTexto.match(/\b(NP:|N\.P\.:)\d{1,8}\b/);
 
-      try {
-        const { data: { text } } = await Tesseract.recognize(imageData, 'eng', {
-          tessedit_char_whitelist: 'NP:.0123456789' // otimiza
-        });
+      const now = Date.now();
 
-        const qrTexto = text.toUpperCase();
-        const match = qrTexto.match(/\b(NP:|N.P.:)\d{1,8}\b/);
+      if (match) {
+        const lida = match[0];
 
-        if (match && match[0] !== lastRemessa) {
-          lastRemessa = match[0];
-          scanning = false;
-          status.innerHTML = "✅ Remessa detectada: " + lastRemessa + "<br>Consultando planilha...";
-
-          // Chamar o WebApp e mostrar o retorno direto AQUI
-          const linkWebApp = "https://script.google.com/macros/s/AKfycbzhTr_llG4Wwb9A7ZaoGynQeD73jXRBY45d2qFMXr3Ito7WZr0FMYqKqzzeXz6nlPzAKw/exec?remessa=" + lastRemessa;
-
-          fetch(linkWebApp)
-        .then(res => res.json())
-        .then(data => {
-          status.innerHTML =
-            "<h1 style='font-size:100px; color:red;'>Palete: PL" + data.palete + "</h1>" +
-            "<p>" + data.mensagem + "</p>" +
-            "<p style='font-size:20px; color:blue;'>Total de leituras dessa remessa: <b>" + data.contagem + "</b></p>";
-          btnNext.style.display = "inline-block";
-          btnBack.style.display = "inline-block";
-        })
-        .catch(err => {
-          status.innerHTML = "⚠️ Erro ao consultar planilha: " + err;
-          btnBack.style.display = "inline-block";
-        });
-
-
-        } else {
-          setTimeout(scanFrame, 300);
+        // Debounce (não contar o mesmo frame repetido)
+        if (now - lastScanAt < SCAN_COOLDOWN) {
+          setTimeout(scanFrame, 250);
+          return;
         }
-      } catch (err) {
-        console.error(err);
-        setTimeout(scanFrame, 300);
+
+        // Permitir ler a MESMA remessa novamente depois que o usuário clicar "Próximo"
+        if (lida === lastRemessa) {
+          // se for exatamente a mesma e o usuário não clicou "Próximo", ignora
+          setTimeout(scanFrame, 250);
+          return;
+        }
+
+        lastRemessa = lida;
+        lastScanAt = now;
+        scanning = false;
+
+        status.innerHTML = "✅ Remessa detectada: " + lastRemessa + "<br>Consultando planilha...";
+
+        const linkWebApp = "https://script.google.com/macros/s/AKfycbxOVNtNR_o8GlrYoOCXwuc3jq9kpMPWqK9f_XbkAY08xiERIaFIPOhu3u6hVABfRCfP9w/exec?remessa=" + encodeURIComponent(lastRemessa);
+
+        fetch(linkWebApp)
+          .then(res => res.json())
+          .then(data => {
+            // feedback tátil (opcional)
+            if (navigator.vibrate) navigator.vibrate(60);
+
+            status.innerHTML =
+              "<h1 style='font-size:100px; color:red;'>Palete: PL" + data.palete + "</h1>" +
+              "<p>" + data.mensagem + "</p>" +
+              "<p style='font-size:20px; color:blue;'>Total de leituras dessa remessa: <b>" + data.contagem + "</b></p>";
+
+            btnNext.style.display = "inline-block";
+            btnBack.style.display = "inline-block";
+          })
+          .catch(err => {
+            status.innerHTML = "⚠️ Erro ao consultar planilha: " + err;
+            btnBack.style.display = "inline-block";
+          });
+      } else {
+        setTimeout(scanFrame, 250);
       }
+    } catch (err) {
+      console.error(err);
+      setTimeout(scanFrame, 250);
     }
+  }
 
-    setTimeout(scanFrame, 300);
+  setTimeout(scanFrame, 250);
 
-    // Botão Próximo Volume
-    btnNext.addEventListener('click', () => {
-      scanning = true;
-      status.innerHTML = "Aponte o código da remessa dentro do retângulo vermelho";
-      btnNext.style.display = "none";
-      btnBack.style.display = "none";
-      scanFrame();
-    });
+  // Próximo Volume (permite ler a MESMA remessa em sequência)
+  btnNext.addEventListener('click', () => {
+    scanning = true;
+    lastRemessa = "";          // <-- ESSENCIAL
+    status.innerHTML = "Aponte o código da remessa dentro do retângulo vermelho";
+    btnNext.style.display = "none";
+    btnBack.style.display = "none";
+    scanFrame();
+  });
 
-    // Botão Voltar
-    btnBack.addEventListener('click', () => {
-      scanning = true;
-      status.innerHTML = "Aponte o código da remessa dentro do retângulo vermelho";
-      btnNext.style.display = "none";
-      btnBack.style.display = "none";
-      scanFrame();
-    });
-  </script>
+  // Voltar
+  btnBack.addEventListener('click', () => {
+    scanning = true;
+    lastRemessa = "";          // <-- também limpa
+    status.innerHTML = "Aponte o código da remessa dentro do retângulo vermelho";
+    btnNext.style.display = "none";
+    btnBack.style.display = "none";
+    scanFrame();
+  });
+</script>
+
 </body>
 </html>
