@@ -1,159 +1,258 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>Leitor de Remessa OCR</title>
-  <style>
-    body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
-    video { width: 100%; max-width: 400px; margin-top: 20px; }
-    #status { margin-top: 20px; font-size: 20px; color: green; }
-    #overlay {
-      position: absolute;
-      top: 50%; left: 50%;
-      width: 200px; height: 50px;
-      margin-left: -100px; margin-top: -25px;
-      border: 2px solid red;
-      pointer-events: none;
-    }
-    #container { position: relative; display: inline-block; }
-    #btnNext, #btnBack {
-      margin-top: 20px; font-size: 18px; padding: 10px 20px; display: none;
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Leitor – TBL Boticário</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<style>
+  :root { --bg:#0b0f14; --fg:#e9edf3; --muted:#90a4b7; --ok:#20c997; --warn:#ffb020; --err:#ff6b6b; }
+  html,body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,Segoe UI,Roboto; }
+  .wrap { display:flex; flex-direction:column; gap:12px; padding:16px; max-width:720px; margin:0 auto; }
+  .card { background:#111722; border:1px solid #1b2332; border-radius:18px; padding:14px; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+  .title { font-size:18px; color:var(--muted); margin:0 0 8px; letter-spacing:.4px; }
+  video { width:100%; border-radius:14px; background:#000; }
+  .status { font-size:14px; color:var(--muted); min-height:1.4em; }
+  .lcd { text-align:center; padding:14px 10px 10px; }
+  .lcd .label { font-size:18px; color:var(--muted); letter-spacing:.35em; }
+  .lcd .pallet { font-size:80px; line-height:1; font-weight:800; letter-spacing:.02em; margin-top:4px; }
+  .lcd .prefixo { margin-top:4px; font-size:16px; color:var(--muted); }
+  .lcd .contador { margin-top:10px; font-size:18px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .btn {
+    flex:1; min-width:120px; appearance:none; border:none; border-radius:14px; padding:14px 16px;
+    font-size:16px; font-weight:700; cursor:pointer; transition:transform .04s ease;
+  }
+  .btn:active { transform:translateY(1px); }
+  .btn-confirm { background:var(--ok); color:#072b23; }
+  .btn-next { background:#2b86ff; color:white; }
+  .btn-reset { background:#2e3440; color:#dfe7f3; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; border:1px solid #223049; color:#aac0d6; }
+  .hint { font-size:12px; color:var(--muted); }
+  .err { color:var(--err); }
+  .ok { color:var(--ok); }
+</style>
 </head>
 <body>
-  <h1>Leitor de Remessa OCR</h1>
-  <div id="container">
-    <video id="video" autoplay></video>
-    <div id="overlay"></div>
+<div class="wrap">
+  <div class="card">
+    <h2 class="title">Leitor de Código de Barras – TBL Boticário</h2>
+    <div id="deviceRow" class="status"></div>
+    <video id="video" muted playsinline></video>
+    <div class="status" id="status">Iniciando câmera…</div>
   </div>
-  <canvas id="canvas" style="display:none;"></canvas>
-  <div id="status">Aponte o código da remessa dentro do retângulo vermelho</div>
-  <button id="btnNext">Próximo Volume</button>
-  <button id="btnBack">Voltar para câmera</button>
 
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
-  <script>
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const status = document.getElementById('status');
-  const btnNext = document.getElementById('btnNext');
-  const btnBack = document.getElementById('btnBack');
+  <div class="card lcd" id="lcd">
+    <div class="label">PALLET</div>
+    <div class="pallet" id="palletNum">—</div>
+    <div class="prefixo" id="prefixoLabel">Prefixo: —</div>
+    <div class="contador" id="contadorLabel">Quantidade: —</div>
+  </div>
 
-  let scanning = true;
-  let lastRemessa = "";
-  let lastScanAt = 0;
-  const SCAN_COOLDOWN = 800; // ms
+  <div class="card">
+    <div class="row">
+      <button class="btn btn-confirm" id="btnConfirm" disabled>Confirmar</button>
+      <button class="btn btn-next" id="btnNext" disabled>Próxima caixa</button>
+      <button class="btn btn-reset" id="btnReset">Reset</button>
+    </div>
+    <div class="hint">Dica: “Confirmar” grava no Sheets. “Próxima caixa” volta à leitura sem gravar novamente.</div>
+  </div>
 
-  async function startCamera() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      video.srcObject = stream;
-    } catch (err) {
-      status.innerHTML = "Não foi possível acessar a câmera: " + err;
-    }
+  <div class="card">
+    <span class="pill" id="pillCaso">—</span>
+    <span class="pill" id="pillInfo">Aguardando leitura…</span>
+  </div>
+</div>
+
+<!-- ZXing browser bundle -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/browser@latest"></script>
+<script>
+  // ====== CONFIGURE AQUI ======
+  const API_URL = "https://script.google.com/macros/s/AKfycbzWc-wOsOQekomF--J501t1g4gXtmDJFeWgf1V9IRXWFuMldGhp56qYB2T7QPtYwEnnbg/exec"; // URL da implantação do Apps Script (Web App)
+  const RESET_KEY = "SUA_CHAVE_DE_SEGURANCA_AQUI"; // igual ao do Apps Script
+
+  // ====== Estado ======
+  let currentScan = null; // { barcode, caso, prefixo, pallet, quantidadeAtual, quantidadeSeConfirmar }
+  let deviceId = localStorage.getItem('tbl_dev_id');
+  if (!deviceId) {
+    deviceId = crypto.randomUUID();
+    localStorage.setItem('tbl_dev_id', deviceId);
   }
-  startCamera();
+  document.getElementById('deviceRow').textContent = `Device: ${deviceId}`;
 
-  async function scanFrame() {
-    if (!scanning || video.readyState !== video.HAVE_ENOUGH_DATA) {
-      if (scanning) setTimeout(scanFrame, 250);
+  const video = document.getElementById('video');
+  const statusEl = document.getElementById('status');
+  const palletEl = document.getElementById('palletNum');
+  const prefixoEl = document.getElementById('prefixoLabel');
+  const contadorEl = document.getElementById('contadorLabel');
+  const pillCaso = document.getElementById('pillCaso');
+  const pillInfo = document.getElementById('pillInfo');
+  const btnConfirm = document.getElementById('btnConfirm');
+  const btnNext = document.getElementById('btnNext');
+  const btnReset = document.getElementById('btnReset');
+
+  function setLCD(data) {
+    if (!data) {
+      palletEl.textContent = '—';
+      prefixoEl.textContent = 'Prefixo: —';
+      contadorEl.textContent = 'Quantidade: —';
+      pillCaso.textContent = '—';
+      pillInfo.textContent = 'Aguardando leitura…';
       return;
     }
+    palletEl.textContent = data.pallet ?? '—';
+    prefixoEl.textContent = `Prefixo: ${data.prefixo ?? '—'}`;
+    contadorEl.textContent = `Quantidade: ${data.quantidadeAtual} → ${data.quantidadeSeConfirmar}`;
+    pillCaso.textContent = data.caso === 1 ? 'Caso 1 (00*, descarta último)' : 'Caso 2 (8 primeiros)';
+    pillInfo.textContent = 'Leia e confirme para registrar.';
+  }
 
-    const ctx = canvas.getContext('2d');
-    const w = 200, h = 50;
-    canvas.width = w; canvas.height = h;
+  function setButtons(scannable) {
+    btnConfirm.disabled = !scannable;
+    btnNext.disabled = !scannable;
+  }
 
-    const x = (video.videoWidth - w) / 2;
-    const y = (video.videoHeight - h) / 2;
-    ctx.drawImage(video, x, y, w, h, 0, 0, w, h);
+  async function callPeek(barcode) {
+    const url = `${API_URL}?action=peek&barcode=${encodeURIComponent(barcode)}&device=${encodeURIComponent(deviceId)}`;
+    const res = await fetch(url);
+    const js = await res.json();
+    if (!js.ok) throw new Error(js.err || 'Falha no peek');
+    return js;
+  }
 
-    const imageData = canvas.toDataURL('image/png');
+  async function callConfirm(barcode) {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ action:'confirm', barcode, device: deviceId })
+    });
+    const js = await res.json();
+    if (!js.ok) throw new Error(js.err || 'Falha no confirm');
+    return js;
+  }
 
+  async function callReset() {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ action:'reset', key: RESET_KEY })
+    });
+    return res.json();
+  }
+
+  // ====== Scanner (ZXing) ======
+  let codeReader = null;
+  let running = false;
+
+  async function startScanner() {
     try {
-      const { data: { text } } = await Tesseract.recognize(imageData, 'eng', {
-        tessedit_char_whitelist: 'NP:.0123456789'
+      statusEl.textContent = 'Solicitando câmera…';
+      // ZXing BrowserMultiFormatReader
+      const { BrowserMultiFormatReader } = ZXingBrowser;
+      codeReader = new BrowserMultiFormatReader();
+      const devices = await BrowserMultiFormatReader.listVideoInputDevices();
+      const backCam = devices.find(d => /back|traseir|rear/i.test(d.label)) || devices[0];
+      if (!backCam) throw new Error('Nenhuma câmera encontrada');
+
+      await codeReader.decodeFromVideoDevice(backCam.deviceId, video, async (result, err, controls) => {
+        if (result) {
+          // Parar leitura momentânea para evitar múltiplas leituras
+          controls.stop();
+          running = false;
+          const barcode = result.getText();
+          statusEl.textContent = `Lido: ${barcode}`;
+          try {
+            const peek = await callPeek(barcode);
+            currentScan = { 
+              barcode,
+              caso: peek.caso,
+              prefixo: peek.prefixo,
+              pallet: peek.pallet,
+              quantidadeAtual: peek.quantidadeAtual,
+              quantidadeSeConfirmar: peek.quantidadeSeConfirmar
+            };
+            setLCD(currentScan);
+            setButtons(true);
+          } catch (e) {
+            statusEl.innerHTML = `<span class="err">Erro: ${e.message}</span>`;
+            setButtons(false);
+            currentScan = null;
+            setLCD(null);
+            // Reinicia o leitor após breve pausa
+            setTimeout(() => restartScanner(), 900);
+          }
+        } else if (err && !(err instanceof ZXingBrowser.NotFoundException)) {
+          statusEl.innerHTML = `<span class="err">${err}</span>`;
+        }
       });
 
-      const qrTexto = text.toUpperCase();
-      const match = qrTexto.match(/\b(NP:|N\.P\.:)\d{1,8}\b/);
-
-      const now = Date.now();
-
-      if (match) {
-        const lida = match[0];
-
-        // Debounce (não contar o mesmo frame repetido)
-        if (now - lastScanAt < SCAN_COOLDOWN) {
-          setTimeout(scanFrame, 250);
-          return;
-        }
-
-        // Permitir ler a MESMA remessa novamente depois que o usuário clicar "Próximo"
-        if (lida === lastRemessa) {
-          // se for exatamente a mesma e o usuário não clicou "Próximo", ignora
-          setTimeout(scanFrame, 250);
-          return;
-        }
-
-        lastRemessa = lida;
-        lastScanAt = now;
-        scanning = false;
-
-        status.innerHTML = "✅ Remessa detectada: " + lastRemessa + "<br>Consultando planilha...";
-
-        const linkWebApp = "https://script.google.com/macros/s/AKfycbxOVNtNR_o8GlrYoOCXwuc3jq9kpMPWqK9f_XbkAY08xiERIaFIPOhu3u6hVABfRCfP9w/exec?remessa=" + encodeURIComponent(lastRemessa);
-
-        fetch(linkWebApp)
-          .then(res => res.json())
-          .then(data => {
-            // feedback tátil (opcional)
-            if (navigator.vibrate) navigator.vibrate(60);
-
-            status.innerHTML =
-              "<h1 style='font-size:100px; color:red;'>Palete: PL" + data.palete + "</h1>" +
-              "<p>" + data.mensagem + "</p>" +
-              "<p style='font-size:20px; color:blue;'>Total de leituras dessa remessa: <b>" + data.contagem + "</b></p>";
-
-            btnNext.style.display = "inline-block";
-            btnBack.style.display = "inline-block";
-          })
-          .catch(err => {
-            status.innerHTML = "⚠️ Erro ao consultar planilha: " + err;
-            btnBack.style.display = "inline-block";
-          });
-      } else {
-        setTimeout(scanFrame, 250);
-      }
-    } catch (err) {
-      console.error(err);
-      setTimeout(scanFrame, 250);
+      running = true;
+      statusEl.textContent = 'Aponte a câmera para o código de barras.';
+      video.play().catch(()=>{});
+    } catch (e) {
+      statusEl.innerHTML = `<span class="err">${e.message}</span>`;
     }
   }
 
-  setTimeout(scanFrame, 250);
+  function restartScanner() {
+    if (codeReader) {
+      try { codeReader.reset(); } catch {}
+    }
+    startScanner();
+  }
 
-  // Próximo Volume (permite ler a MESMA remessa em sequência)
+  // ====== UI events ======
+  btnConfirm.addEventListener('click', async () => {
+    if (!currentScan) return;
+    btnConfirm.disabled = true;
+    try {
+      const r = await callConfirm(currentScan.barcode);
+      // Atualiza contador exibido (confirmado)
+      contadorEl.textContent = `Quantidade: ${r.quantidade}`;
+      pillInfo.textContent = 'Registrado com sucesso.';
+      statusEl.innerHTML = `<span class="ok">Confirmado no pallet ${r.pallet}.</span>`;
+    } catch (e) {
+      statusEl.innerHTML = `<span class="err">Erro ao confirmar: ${e.message}</span>`;
+    } finally {
+      // Pronta para próxima leitura
+      setTimeout(() => {
+        currentScan = null;
+        setLCD(null);
+        setButtons(false);
+        restartScanner();
+      }, 700);
+    }
+  });
+
   btnNext.addEventListener('click', () => {
-    scanning = true;
-    lastRemessa = "";          // <-- ESSENCIAL
-    status.innerHTML = "Aponte o código da remessa dentro do retângulo vermelho";
-    btnNext.style.display = "none";
-    btnBack.style.display = "none";
-    scanFrame();
+    // Não grava; apenas reinicia leitura
+    currentScan = null;
+    setLCD(null);
+    setButtons(false);
+    pillInfo.textContent = 'Aguardando leitura…';
+    restartScanner();
   });
 
-  // Voltar
-  btnBack.addEventListener('click', () => {
-    scanning = true;
-    lastRemessa = "";          // <-- também limpa
-    status.innerHTML = "Aponte o código da remessa dentro do retângulo vermelho";
-    btnNext.style.display = "none";
-    btnBack.style.display = "none";
-    scanFrame();
+  btnReset.addEventListener('click', async () => {
+    const ok = confirm('Tem certeza que deseja RESETAR dados?');
+    if (!ok) return;
+    try {
+      const r = await callReset();
+      if (r.ok) {
+        alert('Dados resetados com sucesso.');
+        setLCD(null);
+        setButtons(false);
+        restartScanner();
+      } else {
+        alert('Falha no reset: ' + (r.err || ''));
+      }
+    } catch (e) {
+      alert('Erro no reset: ' + e.message);
+    }
   });
+
+  // Init
+  startScanner();
 </script>
-
 </body>
 </html>
