@@ -1,101 +1,220 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Leitor de Códigos</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Leitor de Códigos - TBL Boticário</title>
 <style>
-  body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f7f7f7; }
-  h1 { font-size: 1.5em; }
-  #palletLabel { font-size: 1em; margin-top: 20px; }
-  #palletNumber { font-size: 3em; font-weight: bold; margin: 10px 0; }
-  #contador { font-size: 1.2em; margin: 15px 0; }
-  button { padding: 10px 20px; margin: 5px; font-size: 1em; border: none; border-radius: 8px; cursor: pointer; }
-  #confirmar { background: #4CAF50; color: white; }
-  #deletar { background: #E53935; color: white; }
-  #video-container { position: relative; display: inline-block; }
-  #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 2px solid red; box-sizing: border-box; pointer-events: none; }
+  body { font-family: Arial, sans-serif; background:#f7f7f7; color:#111; margin:12px; text-align:center; }
+  h1 { margin:6px 0 8px 0; font-size:1.2rem; }
+  #video-container { position: relative; display:inline-block; width:320px; height:220px; border-radius:8px; overflow:hidden; background:#000; }
+  #video { width:100%; height:100%; object-fit:cover; }
+  #overlay { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+  #palletLabel { margin-top:12px; font-size:0.9rem; color:#666; }
+  #palletNumber { font-size:3.4rem; font-weight:700; margin:6px 0; letter-spacing:2px; }
+  #contador { font-size:1.1rem; margin-bottom:10px; }
+  .btn { padding:10px 18px; margin:6px; font-size:1rem; border-radius:8px; border:none; cursor:pointer; }
+  #registrar { background:#1976d2; color:#fff; }
+  #proxima { background:#4CAF50; color:#fff; }
+  #apagar { background:#E53935; color:#fff; margin-top:28px; padding:12px 20px; }
+  #apagar-container { margin-top:28px; }
+  #status { margin-top:8px; color:#444; font-size:0.9rem; }
 </style>
 </head>
 <body>
-<h1>Leitor de Códigos</h1>
-<div id="video-container">
-  <video id="video" width="300" height="200" autoplay></video>
-  <div id="overlay"></div>
-</div>
-<div id="palletLabel">PALLET</div>
-<div id="palletNumber">---</div>
-<div id="contador">Total: 0</div>
-<button id="confirmar">Confirmar</button>
-<button id="deletar">Apagar Última</button>
+  <h1>Leitor de Códigos — TBL Boticário</h1>
+
+  <div id="video-container">
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <div id="palletLabel">PALLET</div>
+  <div id="palletNumber">---</div>
+  <div id="contador">Total registrado: 0</div>
+
+  <div>
+    <button id="registrar" class="btn">Registrar</button>
+    <button id="proxima" class="btn">Próxima</button>
+  </div>
+
+  <div id="status">Aguardando leitura...</div>
+
+  <!-- botão Apagar Tudo separado e mais abaixo -->
+  <div id="apagar-container">
+    <button id="apagar" class="btn">APAGAR TUDO (ZERAR PLANILHA)</button>
+  </div>
 
 <script src="https://unpkg.com/@ericblade/quagga2/dist/quagga.js"></script>
 <script>
-const API_URL = "https://script.google.com/macros/s/AKfycbyJlRIrfEqSsU6mZCktYz2gG2zlSO8hT8QcnDydw84xtkrWPZ0WAaPN38zQNyGVdiFV_A/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbx0K6qylrCmV9agvdtYks9hRpXa_dWTrQ9Ha7RbmU07XzOUsEObhPINEfXkl5pRkGVIlg/exec"; // <- substitua pelo link do seu WebApp
 let ultimoCodigo = "";
-let palletAtual = "001";
+let palletAtual = "001"; // pode atualizar dinamicamente se quiser
 let total = 0;
+let bloqueado = false; // controle para "Próxima" liberar próximo scan
 
-function enviarLeitura(codigo) {
+// atualiza resumo na tela (puxa do server)
+function atualizarResumo() {
   fetch(API_URL, {
     method: "POST",
-    body: JSON.stringify({ action: "registrar", codigo, pallet: palletAtual }),
-  })
-  .then(res => res.json())
-  .then(data => {
-    if (data.success) {
-      document.getElementById("palletNumber").textContent = data.pallet;
-      total++;
-      document.getElementById("contador").textContent = "Total: " + total;
+    body: JSON.stringify({ action: "resumo" })
+  }).then(r => r.json()).then(json => {
+    if (json.success) {
+      document.getElementById("contador").textContent = "Total registrado: " + (json.total || 0);
+      document.getElementById("palletNumber").textContent = json.ultimoPallet || palletAtual;
+      total = json.total || 0;
     }
+  }).catch(err => console.error(err));
+}
+
+// envia registro para planilha
+function enviarLeitura(codigo) {
+  if (!codigo) { alert("Nenhum código lido."); return; }
+  fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "registrar", codigo, pallet: palletAtual, quantidade: 1 })
+  }).then(r => r.json()).then(json => {
+    if (json.success) {
+      document.getElementById("status").textContent = "Registrado: " + json.np;
+      atualizarResumo();
+      // bloquear até o usuário liberar (opcional)
+      bloqueado = true;
+    } else {
+      document.getElementById("status").textContent = "Erro ao registrar.";
+    }
+  }).catch(err => {
+    console.error(err);
+    document.getElementById("status").textContent = "Erro na requisição.";
   });
 }
 
-document.getElementById("confirmar").addEventListener("click", () => {
-  if (ultimoCodigo) enviarLeitura(ultimoCodigo);
+// deleta última leitura
+function deletarUltima() {
+  fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "deletar" })
+  }).then(r => r.json()).then(json => {
+    alert(json.message || JSON.stringify(json));
+    atualizarResumo();
+  });
+}
+
+// zera toda a planilha (Apagar Tudo)
+function zerarTudo() {
+  if (!confirm("Confirmar apagar tudo e zerar planilha? Esta ação não pode ser desfeita.")) return;
+  fetch(API_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "zerar" })
+  }).then(r => r.json()).then(json => {
+    alert(json.message || JSON.stringify(json));
+    ultimoCodigo = "";
+    bloqueado = false;
+    document.getElementById("palletNumber").textContent = "---";
+    atualizarResumo();
+  });
+}
+
+// botão Registrar -> grava na planilha
+document.getElementById("registrar").addEventListener("click", () => {
+  if (!ultimoCodigo) {
+    alert("Nenhum código detectado. Aproxime o código da câmera.");
+    return;
+  }
+  enviarLeitura(ultimoCodigo);
 });
 
-document.getElementById("deletar").addEventListener("click", () => {
-  fetch(API_URL, { method: "POST", body: JSON.stringify({ action: "deletar" }) })
-    .then(res => res.json())
-    .then(data => alert(data.message));
+// botão Próxima -> libera próximo scan (não registra)
+document.getElementById("proxima").addEventListener("click", () => {
+  ultimoCodigo = "";
+  bloqueado = false;
+  document.getElementById("status").textContent = "Pronto para próximo scan.";
 });
 
+// botão Apagar Tudo (posicionado separado)
+document.getElementById("apagar").addEventListener("click", () => {
+  zerarTudo();
+});
+
+// Inicializa Quagga
 Quagga.init({
-  inputStream: { 
-    type: "LiveStream", 
-    target: document.querySelector("#video-container"),
-    constraints: { facingMode: "environment" } // câmera traseira
+  inputStream: {
+    type: "LiveStream",
+    target: document.querySelector("#video"),
+    constraints: { facingMode: "environment", width: 640, height: 480 }
   },
-  decoder: { readers: ["code_128_reader", "ean_reader"] },
+  locator: { patchSize: "small", halfSample: true }, // mais rápido e menos "quadradinhos"
+  decoder: { readers: ["code_128_reader", "ean_reader", "ean_8_reader"] },
   locate: true
 }, err => {
-  if (err) { console.error(err); return; }
+  if (err) { console.error(err); document.getElementById("status").textContent = "Erro na câmera: " + err; return; }
   Quagga.start();
+  document.getElementById("status").textContent = "Leitor ativo. Aproxime o código.";
+  atualizarResumo();
 });
 
-// Mostrar o retângulo de leitura
+// Desenha somente o box principal (evita múltiplos quadradinhos)
 Quagga.onProcessed(result => {
-  const drawingCtx = Quagga.canvas.ctx.overlay;
-  const drawingCanvas = Quagga.canvas.dom.overlay;
-  if (result) {
-    if (result.boxes) {
-      drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-      result.boxes.filter(box => box !== result.box).forEach(box => {
-        Quagga.ImageDebug.drawPath(box, {x: 0, y: 1}, drawingCtx, {color: "green", lineWidth: 2});
-      });
+  const canvas = document.getElementById("overlay");
+  const video = document.getElementById("video");
+  if (!canvas || !video) return;
+  canvas.width = video.clientWidth;
+  canvas.height = video.clientHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  if (result && result.box) {
+    // box são pontos em coordenadas do vídeo; precisamos mapear escala
+    const ratioX = canvas.width / (result.inputImage ? result.inputImage.width : canvas.width);
+    const ratioY = canvas.height / (result.inputImage ? result.inputImage.height : canvas.height);
+    // desenha polígono
+    ctx.beginPath();
+    const box = result.box;
+    // normaliza coordenadas se necessário
+    for (let i = 0; i < box.length; i++) {
+      const x = (box[i][0] / (result.inputImage ? result.inputImage.width : canvas.width)) * canvas.width;
+      const y = (box[i][1] / (result.inputImage ? result.inputImage.height : canvas.height)) * canvas.height;
+      if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
     }
-    if (result.box) {
-      Quagga.ImageDebug.drawPath(result.box, {x: 0, y: 1}, drawingCtx, {color: "red", lineWidth: 2});
-    }
+    ctx.closePath();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "lime";
+    ctx.stroke();
   }
 });
 
-// Detecta o código
+// Quando detecta, salva código mas não registra automaticamente
 Quagga.onDetected(data => {
-  const code = data.codeResult.code;
-  ultimoCodigo = code;
+  if (bloqueado) return; // se bloqueado, ignora
+  const code = data && data.codeResult ? data.codeResult.code : "";
+  if (code) {
+    ultimoCodigo = code;
+    document.getElementById("status").textContent = "Código lido: " + code;
+    // opcional: atualiza o pallet grande com o pallet atual (ou com o NP extraído se quiser)
+    // aqui mostramos pallet atual configurado
+    document.getElementById("palletNumber").textContent = palletAtual;
+    // se quiser que o app faça bip ao detectar, descomente:
+    // beep();
+  }
 });
+
+// (opcional) Função para bip — comentada por padrão
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = 880;
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start(0);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.15);
+    setTimeout(()=>{ o.stop(); }, 200);
+  } catch (e) { /* ignore */ }
+}
+
+// Atualiza resumo ao abrir
+window.addEventListener("load", atualizarResumo);
 </script>
 </body>
 </html>
