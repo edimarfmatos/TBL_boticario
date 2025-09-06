@@ -138,10 +138,16 @@ document.getElementById("apagar").addEventListener("click", () => {
 // Inicializa Quagga
 Quagga.init({
   inputStream: {
-    type: "LiveStream",
-    target: document.querySelector("#video"),
-    constraints: { facingMode: "environment", width: 640, height: 480 }
-  },
+  name: "Live",
+  type: "LiveStream",
+  target: document.querySelector("#video"),
+  constraints: {
+    width: { min: 640 },
+    height: { min: 480 },
+    facingMode: "environment"
+  }
+},
+
   locator: { patchSize: "small", halfSample: true }, // mais rápido e menos "quadradinhos"
   decoder: { readers: ["code_128_reader", "ean_reader", "ean_8_reader"] },
   locate: true
